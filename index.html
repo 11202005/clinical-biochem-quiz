@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clinical Biochemistry Practice Quiz</title>
+  <style>
+    body {
+      font-family: Arial, "Microsoft JhengHei", sans-serif;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #f5f7fa;
+      color: #222;
+    }
+    .quiz-container {
+      background: #fff;
+      border-radius: 10px;
+      padding: 32px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+    h1 {
+      text-align: center;
+      color: #1f3b5b;
+    }
+    .screen { display: none; }
+    .screen.active { display: block; }
+    .login-box { text-align: center; }
+    input {
+      padding: 12px;
+      font-size: 1rem;
+      border: 2px solid #d8dee9;
+      border-radius: 8px;
+      width: 280px;
+      text-align: center;
+    }
+    .question {
+      font-size: 1.15rem;
+      margin-bottom: 18px;
+      font-weight: bold;
+      line-height: 1.6;
+    }
+    .option {
+      display: block;
+      width: 100%;
+      margin: 10px 0;
+      padding: 14px;
+      border: 2px solid #e2e8f0;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+      text-align: left;
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+    .option:hover { background: #eff6ff; }
+    .option.correct {
+      background: #dcfce7;
+      border-color: #22c55e;
+    }
+    .option.incorrect {
+      background: #fee2e2;
+      border-color: #ef4444;
+    }
+    .option:disabled {
+      cursor: not-allowed;
+      opacity: 0.95;
+    }
+    .btn {
+      padding: 12px 22px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 1rem;
+      margin-top: 16px;
+    }
+    .btn:hover { background: #1d4ed8; }
+    .feedback {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 8px;
+      display: none;
+      line-height: 1.6;
+    }
+    .feedback.show { display: block; }
+    .feedback.success {
+      background: #dcfce7;
+      color: #14532d;
+    }
+    .feedback.error {
+      background: #fee2e2;
+      color: #7f1d1d;
+    }
+    .progress {
+      color: #64748b;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="quiz-container">
+    <h1>Clinical Biochemistry Practice Quiz</h1>
+
+    <div id="login-screen" class="screen active login-box">
+      <h2>Welcome</h2>
+      <p>請輸入學號開始測驗</p>
+      <input type="text" id="student-id" placeholder="例如：11200123">
+      <br>
+      <button class="btn" onclick="startQuiz()">Start Quiz</button>
+      <p id="login-error" style="color:red; display:none;">請輸入學號。</p>
+    </div>
+
+    <div id="quiz-screen" class="screen">
+      <div class="progress" id="progress-text"></div>
+      <div class="question" id="question-text"></div>
+      <div id="options"></div>
+      <div id="feedback" class="feedback"></div>
+      <button class="btn" id="next-btn" style="display:none;" onclick="nextQuestion()">Next Question</button>
+    </div>
+
+    <div id="loading-screen" class="screen" style="text-align:center;">
+      <h2>處理中...</h2>
+      <p>請稍候，不要關閉視窗。</p>
+    </div>
+
+    <div id="results-screen" class="screen" style="text-align:center;">
+      <h2>Quiz Complete</h2>
+      <h3 id="final-score" style="font-size:2em; color:#2563eb;"></h3>
+      <p>你的成績與答題紀錄已送出。</p>
+    </div>
+  </div>
+
+  <script>
+    const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyUdipiKQ9y8yf_KXL73rCurgGkadsf37SqxQP0RA5SJ91kZblv03q6ERXlWaPRPgqWyw/exec";
+    const QUIZ_SIZE = 40;
+
+    let fullQuestionBank = [];
+    let wrongQuestions = [];
+    let otherQuestions = [];
+    let questionBank = [];
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let studentId = "";
+    let answers = [];
+
+    function showScreen(screenId) {
+      document.querySelectorAll(".screen").forEach(screen => {
+        screen.classList.remove("active");
+      });
+      document.getElementById(screenId).classList.add("active");
+    }
+
+    async function loadQuestionsFromSheet() {
+      const response = await fetch(
+        GOOGLE_SHEET_URL + "?studentId=" + encodeURIComponent(studentId)
+      );
+
+      const data = await response.json();
+
+      if (!data.success || !Array.isArray(data.questions)) {
+        throw new Error("題庫載入失敗");
+      }
+
+      fullQuestionBank = data.questions;
+      wrongQuestions = data.wrongQuestions || [];
+      otherQuestions = data.otherQuestions || [];
+    }
+
+    function shuffleArray(array) {
+      return [...array].sort(() => Math.random() - 0.5);
+    }
+
+    function getQuestionKey(q) {
+      return `${q.year}_${q.examCode}_${q.questionNumber}`;
+    }
+
+    function getSmartQuestions(count) {
+      const wrongPool = shuffleArray(wrongQuestions);
+      const otherPool = shuffleArray(otherQuestions);
+
+      const wrongTargetCount = Math.min(
+        Math.ceil(count * 0.4),
+        wrongPool.length
+      );
+
+      const selectedWrong = wrongPool.slice(0, wrongTargetCount);
+
+      const selectedKeys = new Set(
+        selectedWrong.map(q => getQuestionKey(q))
+      );
+
+      const selectedOther = otherPool
+        .filter(q => !selectedKeys.has(getQuestionKey(q)))
+        .slice(0, count - selectedWrong.length);
+
+      let finalQuestions = [...selectedWrong, ...selectedOther];
+
+      if (finalQuestions.length < count) {
+        const currentKeys = new Set(
+          finalQuestions.map(q => getQuestionKey(q))
+        );
+
+        const backupPool = shuffleArray(fullQuestionBank).filter(q =>
+          !currentKeys.has(getQuestionKey(q))
+        );
+
+        finalQuestions = [
+          ...finalQuestions,
+          ...backupPool.slice(0, count - finalQuestions.length)
+        ];
+      }
+
+      return shuffleArray(finalQuestions);
+    }
+
+    async function logUsage(action) {
+      await fetch(GOOGLE_SHEET_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          action: action,
+          studentId: studentId
+        })
+      });
+    }
+
+    async function startQuiz() {
+      studentId = document.getElementById("student-id").value.trim();
+
+      if (!studentId) {
+        document.getElementById("login-error").style.display = "block";
+        return;
+      }
+
+      document.getElementById("login-error").style.display = "none";
+      showScreen("loading-screen");
+
+      try {
+        await loadQuestionsFromSheet();
+
+        if (fullQuestionBank.length < QUIZ_SIZE) {
+          alert("題庫不足 40 題，目前只有 " + fullQuestionBank.length + " 題。");
+          showScreen("login-screen");
+          return;
+        }
+
+        questionBank = getSmartQuestions(QUIZ_SIZE);
+        currentQuestionIndex = 0;
+        score = 0;
+        answers = [];
+
+        await logUsage("start");
+
+        showScreen("quiz-screen");
+        showQuestion();
+
+      } catch (error) {
+        alert("題庫載入失敗，請確認 Apps Script、Google Sheet 權限與部署版本。");
+        console.error(error);
+        showScreen("login-screen");
+      }
+    }
+
+    function showQuestion() {
+      const question = questionBank[currentQuestionIndex];
+
+      document.getElementById("progress-text").textContent =
+        "Question " + (currentQuestionIndex + 1) + " / " + questionBank.length;
+
+      document.getElementById("question-text").textContent = question.question;
+
+      const optionsDiv = document.getElementById("options");
+      optionsDiv.innerHTML = "";
+
+      question.options.forEach((optionText, index) => {
+        const button = document.createElement("button");
+        button.className = "option";
+        button.textContent = String.fromCharCode(65 + index) + ". " + optionText;
+        button.onclick = () => selectAnswer(index);
+        optionsDiv.appendChild(button);
+      });
+
+      document.getElementById("feedback").className = "feedback";
+      document.getElementById("feedback").style.display = "none";
+      document.getElementById("next-btn").style.display = "none";
+    }
+
+    function selectAnswer(selectedIndex) {
+      const question = questionBank[currentQuestionIndex];
+      const isCorrect = selectedIndex === question.correctIndex;
+      const optionButtons = document.querySelectorAll(".option");
+
+      optionButtons.forEach((button, index) => {
+        button.disabled = true;
+
+        if (index === question.correctIndex) {
+          button.classList.add("correct");
+        }
+
+        if (index === selectedIndex && !isCorrect) {
+          button.classList.add("incorrect");
+        }
+      });
+
+      if (isCorrect) {
+        score++;
+      }
+
+      answers.push({
+        year: question.year,
+        examCode: question.examCode,
+        questionNumber: question.questionNumber,
+        question: question.question,
+        selectedIndex: selectedIndex,
+        correctIndex: question.correctIndex,
+        isCorrect: isCorrect
+      });
+
+      fetch(GOOGLE_SHEET_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          action: "answer",
+          studentId: studentId,
+          year: question.year,
+          examCode: question.examCode,
+          questionNumber: question.questionNumber,
+          selectedAnswer: selectedIndex,
+          correctAnswer: question.correctIndex,
+          isCorrect: isCorrect
+        })
+      });
+
+      const feedback = document.getElementById("feedback");
+      feedback.className = "feedback show " + (isCorrect ? "success" : "error");
+      feedback.style.display = "block";
+      feedback.innerHTML =
+        (isCorrect ? "答對了！" : "答錯了。") +
+        "<br>" +
+        (question.explanation || "");
+
+      document.getElementById("next-btn").style.display = "inline-block";
+    }
+
+    function nextQuestion() {
+      currentQuestionIndex++;
+
+      if (currentQuestionIndex < questionBank.length) {
+        showQuestion();
+      } else {
+        submitResults();
+      }
+    }
+
+    async function submitResults() {
+      showScreen("loading-screen");
+
+      const payload = {
+        action: "submit",
+        studentId: studentId,
+        score: score,
+        total: questionBank.length,
+        answers: answers
+      };
+
+      try {
+        await fetch(GOOGLE_SHEET_URL, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+
+        document.getElementById("final-score").textContent =
+          score + " / " + questionBank.length;
+
+        showScreen("results-screen");
+
+      } catch (error) {
+        alert("成績送出失敗，請稍後再試。");
+        console.error(error);
+      }
+    }
+  </script>
+</body>
+</html>
