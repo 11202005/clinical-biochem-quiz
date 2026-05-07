@@ -272,10 +272,10 @@
 
       document.getElementById("question-text").innerHTML =
         `<div style="font-size:0.9rem; color:#64748b; margin-bottom:8px;">
-          ${question.year} 年 ${question.examSession || ""}考試｜第 ${question.questionNumber} 題
-       </div>
-       <div>
-         ${question.question}
+           ${question.year}年${question.examSession || ""}考試
+         </div>
+         <div>
+          ${question.question}
        </div>`;
 
       const optionsDiv = document.getElementById("options");
